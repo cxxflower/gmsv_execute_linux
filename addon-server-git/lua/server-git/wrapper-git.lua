@@ -12,6 +12,13 @@
 --
 -- Console:
 --   git <subcommand> [args...]         — прямой проброс в git
+--
+-- Примечание:
+--   В GMod-консоли символ ':' разбивается на отдельный токен.
+--   Для SSH-URL оборачивайте адрес в кавычки:
+--     git remote add origin "git@github.com:user/repo.git"
+--   Или используйте HTTPS:
+--     git remote add origin https://github.com/user/repo.git
 -- ============================================================================
 
 local Git = {}
@@ -52,10 +59,10 @@ local function buildGitCmd(args)
         table.insert(parts, "cd " .. shQuote(Git.WorkingDir) .. " &&")
     end
     table.insert(parts, "GIT_TERMINAL_PROMPT=0")
-    -- BatchMode=yes — SSH не спрашивает пароль/passphrase, сразу фейлится
-    -- StrictHostKeyChecking=accept-new — не висит на "Are you sure you want to continue connecting"
-    local sshCmd = shQuote(Git.GIT_SSH) .. " -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
-    table.insert(parts, "GIT_SSH_COMMAND=" .. shQuote(sshCmd))
+    table.insert(parts, "GIT_EDITOR=true")          -- не открывать редактор
+    table.insert(parts, "GIT_PAGER=cat")            -- не ждать прокрутки (less/more)
+    table.insert(parts, "GPG_TTY=")                 -- GPG не будет спрашивать passphrase
+    table.insert(parts, "GIT_SSH_COMMAND=" .. shQuote(Git.GIT_SSH .. " -o BatchMode=yes -o StrictHostKeyChecking=accept-new"))
     table.insert(parts, "GIT_EXEC_PATH=" .. shQuote(Git.GIT_LIBEXEC))
     table.insert(parts, shQuote(Git.GIT_EXEC))
     for _, arg in ipairs(args) do
@@ -126,6 +133,29 @@ function Git.ExecWithTimeout(args, timeout, callback)
     end
     local cmd = buildGitCmd(args)
     local h = execute.start(cmd, function(handle, success, stdout, stderr, code)
+        -- GMOD hook
+        local ok, err = pcall(hook.Run, "GitCommandComplete", args, success, stdout, stderr, code)
+        if not ok then
+            print("[git] hook error: " .. tostring(err))
+        end
+        -- File logging
+        if Git.LogFile and Git.LogFile ~= "" then
+            local ts = os.date("%Y-%m-%d %H:%M:%S")
+            local entry = string.format(
+                "[%s] git %s → code %d\n",
+                ts,
+                table.concat(args, " "),
+                code
+            )
+            if stdout and stdout ~= "" then
+                entry = entry .. "  stdout:\n" .. stdout:gsub("\n", "\n  ") .. "\n"
+            end
+            if stderr and stderr ~= "" then
+                entry = entry .. "  stderr:\n" .. stderr:gsub("\n", "\n  ") .. "\n"
+            end
+            entry = entry .. "\n"
+            file.Append(Git.LogFile, entry)
+        end
         if callback then callback(success, stdout, stderr, code) end
         execute.cleanup(handle)
     end)
@@ -190,8 +220,8 @@ function Git.CommitInteractive(message, callback)
     timer.Create(watchName, 0.1, 0, function()
         local status = {execute.status(h)}
         if status[1] == nil then
+            -- Handle auto-cleaned by C module (empty callback) — process is done
             timer.Remove(watchName)
-            execute.cleanup(h)
             return
         end
 
@@ -217,7 +247,7 @@ function Git.CommitInteractive(message, callback)
 
         if done then
             timer.Remove(watchName)
-            execute.cleanup(h)
+            -- Don't call cleanup — empty callback already triggers it in C module
             if callback then callback(success, stdout, stderr, code) end
         end
     end)

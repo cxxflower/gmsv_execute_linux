@@ -53,18 +53,33 @@ concommand.Add("git", function(ply, cmd, args)
         print("")
         print("Таймаут (по умолч. 600с = 10мин):")
         print("  git clone https://... --timeout=120")
+        print("  git clone https://... --timeout 120")
         return
     end
 
-    -- Парсим --timeout=N из аргументов
+    -- Парсим --timeout=N или --timeout N из аргументов
     local timeout = 600
     local cleanArgs = {}
-    for _, arg in ipairs(args) do
-        local t = arg:match("^%-%-timeout=(%d+)$")
-        if t then
-            timeout = tonumber(t)
+    local skipNext = false
+    for i, arg in ipairs(args) do
+        if skip_next then
+            skip_next = false
+            -- this arg is the value after --timeout, consume it as timeout value
+            local t = tonumber(arg)
+            if t then timeout = t end
         else
-            table.insert(cleanArgs, arg)
+            local t = arg:match("^%-%-timeout=(%d+)$")
+            if t then
+                timeout = tonumber(t)
+            else
+                table.insert(cleanArgs, arg)
+            end
+        end
+        -- If current arg is exactly "--timeout", next arg is the value
+        if arg == "--timeout" then
+            skip_next = true
+            -- Remove the "--timeout" from cleanArgs (it was just added)
+            cleanArgs[#cleanArgs] = nil
         end
     end
 

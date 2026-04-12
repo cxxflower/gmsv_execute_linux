@@ -37,9 +37,19 @@ end
 -- ---------------------------------------------------------------------------
 hook.Add("Think", "execute_autopoll", function() execute.poll() end)
 -- ---------------------------------------------------------------------------
--- Очистка при выгрузке (shutdown)
+-- Очистка при выгрузке (shutdown) — убиваем все запущенные процессы
 -- ---------------------------------------------------------------------------
-hook.Add("ShutDown", "execute_wrapper_shutdown", function() hook.Remove("Think", "execute_autopoll") end)
+hook.Add("ShutDown", "execute_shutdown_cleanup", function()
+    local list = execute.list()
+    for handle, info in pairs(list) do
+        if not info.done then
+            execute.kill(handle)
+        end
+    end
+    -- Один последний poll чтобы SIGTERM ушёл
+    execute.poll()
+    hook.Remove("Think", "execute_autopoll")
+end)
 
 -- wrapper-git.lua должен загрузиться ПЕРЕД init-git.lua (init использует Git)
 include("server-git/wrapper-git.lua")
@@ -50,6 +60,13 @@ include("server-git/wrapper-git.lua")
 include("server-git/server-git-config.lua")
 
 local ARCH = ServerGitConfig.ARCH or "64"
+
+local shQuote
+do
+    shQuote = function(s)
+        return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+    end
+end
 
 local function initGit()
     local bins = {
@@ -64,10 +81,8 @@ local function initGit()
 
     print("[server-git] Using " .. ARCH .. "-bit binaries: " .. bins.git)
 
-    -- Проверяем что бинарник существует (GMod file API)
-    -- file.Exists работает относительно garrysmod/
-    -- Бинарники лежат в корне сервера (рядом с garrysmod/), поэтому проверяем через execute.start
-    local checkHandle = execute.start("test -f " .. bins.git, function(_, success)
+    -- Проверяем что бинарник существует
+    execute.exec("test -f " .. shQuote(bins.git), function(success, stdout, stderr, code)
         if not success then
             error(
                 "[server-git] " .. bins.git .. " not found!\n" ..
@@ -81,11 +96,11 @@ local function initGit()
         local permDone = {}
 
         for _, bin in ipairs({ bins.git, bins.ssh }) do
-            local h = execute.start("test -x " .. bin .. " || chmod +x " .. bin)
+            local h = execute.start("test -x " .. shQuote(bin) .. " || chmod +x " .. shQuote(bin))
             table.insert(permHandles, h)
             permDone[h] = false
         end
-        local h3 = execute.start("find " .. bins.libexec .. " -type f ! -perm -111 -exec chmod +x {} + 2>/dev/null || true")
+        local h3 = execute.start("find " .. shQuote(bins.libexec) .. " -type f ! -perm -111 -exec chmod +x {} + 2>/dev/null || true")
         table.insert(permHandles, h3)
         permDone[h3] = false
 

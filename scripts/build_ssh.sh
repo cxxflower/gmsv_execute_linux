@@ -111,17 +111,19 @@ ENDOFSRC
 ${CC:-cc} -static -O2 -fPIC $CFLAGS_ARCH -c override/fake_passwd.c -o override/fake_passwd.o
 
 # -------------------------------------------------------------------
-# Patch includes.h: avoid duplicate #endif
+# Patch includes.h: ensure it ends with exactly one #endif
+# Some upstream versions add a duplicate, some don't.
 # -------------------------------------------------------------------
-LINES=$(wc -l < includes.h)
-head -n $((LINES - 1)) includes.h > includes.h.patched
-
-cat >> includes.h.patched << 'ENDOFPATCH'
-
-#endif /* INCLUDES_H */
-ENDOFPATCH
-
-mv includes.h.patched includes.h
+LAST_LINE=$(tail -n 1 includes.h | tr -d '[:space:]')
+if echo "$LAST_LINE" | grep -q '^#endif'; then
+    # Already has #endif — verify no duplicate, leave as-is
+    echo "=== includes.h already has #endif, no patching needed ==="
+else
+    # Missing #endif — append it
+    echo "" >> includes.h
+    echo "#endif /* INCLUDES_H */" >> includes.h
+    echo "=== includes.h: appended missing #endif ==="
+fi
 
 echo "=== includes.h patched ==="
 tail -5 includes.h

@@ -223,11 +223,13 @@ static int l_execute_start(lua_State *L)
     }
 
     // Handle overflow: skip handles that are already in use
-    unsigned int handle = g_next_handle;
+    unsigned int start = g_next_handle;
+    unsigned int handle;
     do {
+        handle = g_next_handle;
         g_next_handle++;
         if (g_next_handle == 0) g_next_handle = 1;  // wrap around, 0 is invalid
-    } while (g_next_handle != handle && proc_find(g_next_handle));
+    } while (g_next_handle != start && proc_find(handle));
 
     p->handle = handle;
     p->pid = pid;
@@ -508,7 +510,11 @@ static int l_execute_kill(lua_State *L)
         return 1;
     }
 
-    kill(p->pid, SIGTERM);
+    int ret = kill(p->pid, SIGTERM);
+    if (ret < 0) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
     p->sigterm_at = time(NULL);
     lua_pushboolean(L, 1);
     return 1;
