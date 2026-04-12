@@ -44,14 +44,20 @@ end
 
 --- Собрать shell-команду из таблицы аргументов git
 -- Читает Git.GIT_* напрямую — чтобы server-git.lua мог менять их в рантайме
+-- Используем GIT_EXEC_PATH env вместо --exec-path, чтобы не ломать парсинг
+-- аргументов у подкоманд типа `git remote add`.
 local function buildGitCmd(args)
     local parts = {}
     if Git.WorkingDir and Git.WorkingDir ~= "" then
         table.insert(parts, "cd " .. shQuote(Git.WorkingDir) .. " &&")
     end
-    table.insert(parts, "GIT_SSH=" .. shQuote(Git.GIT_SSH))
+    table.insert(parts, "GIT_TERMINAL_PROMPT=0")
+    -- BatchMode=yes — SSH не спрашивает пароль/passphrase, сразу фейлится
+    -- StrictHostKeyChecking=accept-new — не висит на "Are you sure you want to continue connecting"
+    local sshCmd = shQuote(Git.GIT_SSH) .. " -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+    table.insert(parts, "GIT_SSH_COMMAND=" .. shQuote(sshCmd))
+    table.insert(parts, "GIT_EXEC_PATH=" .. shQuote(Git.GIT_LIBEXEC))
     table.insert(parts, shQuote(Git.GIT_EXEC))
-    table.insert(parts, "--exec-path=" .. shQuote(Git.GIT_LIBEXEC))
     for _, arg in ipairs(args) do
         table.insert(parts, shQuote(arg))
     end
