@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [32, 64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build ${{ matrix.arch }}-bit
+        run: |
+          if [ "${{ matrix.arch }}" = "64" ]; then
+            bash build64.sh
+          else
+            bash build32.sh
+          fi
+
+      - name: Package artifacts
+        run: |
+          ARCH=${{ matrix.arch }}
+          OUT_DIR="out${ARCH}"
+          ARCHIVE="gmsv_execute_linux${ARCH}.tar.gz"
+
+          if [ "$ARCH" = "64" ]; then
+            MODULE_DLL="gmsv_execute_linux64.dll"
+            GIT_BIN="git64"
+            GIT_LIBEXEC="git64-libexec"
+            SSH_BIN="ssh64"
+          else
+            MODULE_DLL="gmsv_execute_linux.dll"
+            GIT_BIN="git32"
+            GIT_LIBEXEC="git32-libexec"
+            SSH_BIN="ssh32"
+          fi
+
+          PKG_DIR="pkg_${ARCH}"
+          mkdir -p "$PKG_DIR/lua/bin"
+          mkdir -p "$PKG_DIR/$GIT_LIBEXEC"
+
+          cp "$OUT_DIR/$MODULE_DLL" "$PKG_DIR/lua/bin/"
+          cp "$OUT_DIR/$GIT_BIN" "$PKG_DIR/"
+          cp "$OUT_DIR/$SSH_BIN" "$PKG_DIR/"
+          cp "$OUT_DIR/ssh-keygen${ARCH}" "$PKG_DIR/"
+          cp -r "$OUT_DIR/$GIT_LIBEXEC"/* "$PKG_DIR/$GIT_LIBEXEC/"
+
+          chmod +x "$PKG_DIR/$GIT_BIN" "$PKG_DIR/$SSH_BIN" "$PKG_DIR/ssh-keygen${ARCH}"
+          find "$PKG_DIR/$GIT_LIBEXEC" -type f -exec chmod +x {} +
+
+          tar -czf "$ARCHIVE" -C "$PKG_DIR" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmsv_execute_linux${{ matrix.arch }}
+          path: gmsv_execute_linux${{ matrix.arch }}.tar.gz
+
+  addon-server:
+    name: Package addon-server-git
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package addon-server-git
+        run: |
+          tar -czf addon-server-git.tar.gz -C addon-server-git .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: addon-server-git
+          path: addon-server-git.tar.gz
+
+  release:
+    name: Create Release
+    needs: [build, addon-server]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/gmsv_execute_linux32/gmsv_execute_linux32.tar.gz
+            artifacts/gmsv_execute_linux64/gmsv_execute_linux64.tar.gz
+            artifacts/addon-server-git/addon-server-git.tar.gz

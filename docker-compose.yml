@@ -1,0 +1,16 @@
+services:
+  build64:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ARCH: "64"
+    image: gmsv_execute_builder:64
+
+  build32:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ARCH: "32"
+    image: gmsv_execute_builder:32
